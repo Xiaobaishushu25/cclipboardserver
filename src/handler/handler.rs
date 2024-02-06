@@ -1,122 +1,97 @@
 use crate::app_errors::AppError::IncompleteError;
 use crate::app_errors::AppResult;
 use crate::message::message::Message;
-use crate::message::message::Message::{ClipboardMessage, LoginRequestMessage, ServerReadyMessage};
+use crate::message::message::Message::{ClipboardMessage, PairRequestMessage, ServerReadyMessage};
 use bytes::{Buf, BytesMut};
+use std::arch::x86_64::_MM_FROUND_NO_EXC;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
 
-// trait Handler {
-//     fn handle(msg: Message);
-//     fn set_next_handler<T>(handler: T) -> T
-//     where
-//         T: Handler;
-// }
-// struct HandlerPipe{
-//
-// }
-//
-// impl HandlerPipe {
-//
-// }
-// struct LoginRequestHandler;
-//
-// impl Handler for LoginRequestHandler {
-//     fn handle(msg: Message) {
-//         if let Message::LoginRequestMessage(_, _) = msg {};
-//     }
-//
-//     fn set_next_handler<T>(handler: T) -> T where T: Handler {
-//         todo!()
-//     }
-// }
 pub struct ChannelMap {
-    //现在的channel没有用户信息数量，应当记录当前使用者，没有使用者要清除这个channel
-    channels: HashMap<String, Arc<Mutex<(Sender<Vec<u8>>, Receiver<Vec<u8>>)>>>,
+    // channels: HashMap<String, Arc<Mutex<(Sender<Vec<u8>>, Receiver<Vec<u8>>)>>>,
+    // channels: HashMap<String, (Sender<Vec<u8>>,i32)>,
+    channels: HashMap<String, (Sender<(String, SocketAddr)>, i32)>,
 }
 
 impl ChannelMap {
     pub(crate) fn new() -> Self {
         Self {
-            channels: HashMap::with_capacity(100),
+            channels: HashMap::with_capacity(40),
         }
     }
     fn get_channel_by_id(
         &mut self,
-        id: &String,
-    ) -> Arc<Mutex<(Sender<Vec<u8>>, Receiver<Vec<u8>>)>> {
+        id: &str,
+        // ) -> Sender<Vec<u8>> {
+    ) -> Sender<(String, SocketAddr)> {
         println!("进来寻找");
         match self.channels.get(id) {
-            None => self.add_channel(id),
-            Some(asr) => {
-                println!("找到了");
-                asr.clone()
-            }
+            None => self.add_channel(id.into()),
+            Some(tuple) => (&tuple.0).clone(),
         }
     }
-    fn add_channel(&mut self, id: &String) -> Arc<Mutex<(Sender<Vec<u8>>, Receiver<Vec<u8>>)>> {
+    // fn add_channel(&mut self, id: String) -> Sender<Vec<u8>>{
+    fn add_channel(&mut self, id: String) -> Sender<(String, SocketAddr)> {
         println!("进来添加通道");
-        let abc = Arc::new(Mutex::new(broadcast::channel(20)));
-        // let (sender,_) = &*abc.lock().unwrap();
-        // let sender = sender.clone();
-        // let receiver = sender.subscribe();
-        self.channels.insert(id.clone(), abc.clone());
+        let (tx, rx) = broadcast::channel(20);
+        let sender = tx.clone();
+        self.channels.insert(id, (tx, 1));
         println!("添加通道完成");
-        abc
-        // (sender,receiver)
+        sender
     }
-    // fn add_channel(&mut self,id:&String)->(Sender<Vec<u8>>, Receiver<Vec<u8>>){
-    //     println!("进来添加通道");
-    //     let abc= Arc::new(Mutex::new(broadcast::channel(20)));
-    //     let (sender,_) = &*abc.lock().unwrap();
-    //     let sender = sender.clone();
-    //     let receiver = sender.subscribe();
-    //     self.channels.insert(id.clone(),abc.clone());
-    //     println!("添加通道完成");
-    //     (sender,receiver)
-    // }
+    fn remove(&mut self, id: &str) {
+        if let Some(&mut (_, ref mut num)) = self.channels.get_mut(id) {
+            if *num > 1 {
+                *num -= 1;
+            } else {
+                // 如果num为1 即减1后每用户了，移除键值对，
+                self.channels.remove(id);
+            }
+        };
+    }
 }
 pub struct Context {
     // channel_map:Arc<ChannelMap>,
     channel_map: Arc<Mutex<ChannelMap>>,
-    id: Option<String>,
+    // id: Option<String>,
     stream: TcpStream,
-    socket: SocketAddr,
+    socket_addr: SocketAddr,
     // 分配一个缓冲区
     buffer: BytesMut,
     // channel: Option<(Sender<Vec<u8>>, Receiver<Vec<u8>>)>,
-    sender: Option<Sender<Vec<u8>>>,
+    id: Option<String>,
+    sender: Option<Sender<(String, SocketAddr)>>,
 }
 impl Context {
     // pub(crate) fn new(channel_map:Arc<ChannelMap>, tcp:TcpStream, socket:SocketAddr) ->Self{
     pub(crate) fn new(
         channel_map: Arc<Mutex<ChannelMap>>,
         tcp: TcpStream,
-        socket: SocketAddr,
+        addr: SocketAddr,
     ) -> Self {
         Self {
             channel_map,
-            id: None,
+            // id: None,
             stream: tcp,
-            socket,
+            socket_addr: addr,
             buffer: BytesMut::with_capacity(512),
             sender: None,
+            id: None,
         }
     }
     pub async fn start_work(&mut self) {
+        //准备好接受消息了，给客户端发一个ready信号
         self.stream
-            .write_all(ServerReadyMessage(true).encode_message().as_slice())
+            .write_all(ServerReadyMessage().encode().as_slice())
             .await
             .unwrap();
-
-        // let mut buffer:[u8;10] = [0;10];
-        loop {
+        let id: String = loop {
             println!("start_work 开始监听消息");
             let message = tokio::select! {
                 msg = self.read_message() => msg
@@ -127,11 +102,19 @@ impl Context {
                         None => {
                             //说明对面Tcp关了
                             println!("对面断开连接");
-                            return;
+                            self.disconnect();
+                            break "NULL".to_string();
                         }
                         Some(message) => {
-                            println!("msg {:?}", message);
-                            self.handle_before_message(message).await;
+                            match message {
+                                PairRequestMessage(id) => {
+                                    println!("msg {:?}", id);
+                                    break id;
+                                }
+                                _ => break "NULL".to_string(),
+                            }
+                            // println!("msg {:?}", message);
+                            // self.handle_before_message(message).await;
                             // self.handle_message(message).await;
                         }
                     }
@@ -139,11 +122,14 @@ impl Context {
                 Err(e) => {
                     //对面被强制关闭时会走这里start_work error:io::Error:`远程主机强迫关闭了一个现有的连接。 (os error 10054)`
                     println!("start_work error:{e}");
-                    return;
+                    self.disconnect();
+                    break "NULL".to_string();
                 }
             }
+        };
+        if id != "NULL".to_string() {
+            self.set_id(id).await;
         }
-        //发一个serverready信号
     }
     // async fn read_message(&mut self) ->Result<Option<Message>,String>{
     async fn read_message(&mut self) -> AppResult<Option<Message>> {
@@ -170,7 +156,7 @@ impl Context {
             Ok(_) => {
                 let x = buf.get_ref();
                 let len = x.len();
-                let message = Message::decode_message(x.to_vec())?;
+                let message = Message::decode(x.to_vec())?;
                 //将游标向后推len，圣经说是清空缓冲区的作用，我不理解
                 self.buffer.advance(len);
                 Ok(Some(message))
@@ -180,23 +166,27 @@ impl Context {
                 // Err("parse incomplete message".into())
             }
             Err(e) => {
-                println!("这是什么error？ {}", e.to_string());
+                println!("这是什么error? {}", e.to_string());
                 Err(e)
             } // _ => {}
         }
     }
-    // fn set_id(&mut self, id:String){
-    //     self.id = Some(id)
-    // }
-    async fn set_channel(&mut self, id: String) {
-        let mut new_receiver = {
+    async fn set_id(&mut self, id: String) {
+        self.set_channel(&id).await;
+        self.id = Some(id);
+    }
+    async fn set_channel(&mut self, id: &str) {
+        let mut receiver = {
             //这个作用域很关键，因为这里的Mutex锁用的是标准库的，不能跨await传递
             //所以必须在进入下面的tokio::select!前将锁释放
-            let arc_channel = self.channel_map.lock().unwrap().get_channel_by_id(&id);
-            let (sender, _) = &*arc_channel.lock().unwrap();
-            let new_sender = sender.clone();
-            let receiver = new_sender.subscribe();
-            self.sender = Some(new_sender);
+            // let arc_channel = self.channel_map.lock().unwrap().get_channel_by_id(&id);
+            // let (sender, _) = &*arc_channel.lock().unwrap();
+            // let new_sender = sender.clone();
+            // let receiver = new_sender.subscribe();
+            // self.sender = Some(new_sender);
+            let sender = self.channel_map.lock().unwrap().get_channel_by_id(id);
+            let receiver = sender.subscribe();
+            self.sender = Some(sender);
             receiver
         };
         // self.channel = Some((new_sender,new_receiver));
@@ -216,15 +206,16 @@ impl Context {
         println!("获取rec监听通道消息");
         //有了channel后开始监听rec，这个channel应该只会接收ClipboardMessage，收到msg后发给对应的tcp让其设置自己的剪切板
         // let receiver = &mut self.channel.as_mut().unwrap().1;
-        // let mut receiver = & mut (self.channel.as_mut().as_ref().unwrap().1);
         loop {
             tokio::select! {
-                c = new_receiver.recv() => {
-                    match c{
-                        Ok(msg) => {
-                            println!("{:?}收到消息，准备发送",self.stream);
-                            &self.stream.write_all(msg.as_slice()).await;
-                            &self.stream.flush().await;
+                message = receiver.recv() => {
+                    match message{
+                        Ok((msg,addr)) => {
+                            if self.socket_addr!=addr{
+                                println!("{:?}收到消息，准备发送",self.stream);
+                                &self.stream.write_all(ClipboardMessage(msg).encode().as_slice()).await;
+                                &self.stream.flush().await;
+                            }
                         }
                         Err(_) => {
                             println!("receiver.recv()出现错误")
@@ -235,82 +226,99 @@ impl Context {
                     match message {
                         Ok(om) => {
                             match om {
-                                None => { //说明对面Tcp关了
+                                None => { //说明对面Tcp关了,我发现对面Ctrl+C直接终止进程和对面调用self.stream.shutdown()都走这个
                                     println!("对面断开连接");
+                                    self.disconnect();
                                     return;
                                 }
                                 Some(message) => {
                                     println!("msg {:?}",message);
-                                    self.handle_after_message(message).await;
+                                    match message{
+                                        ClipboardMessage(content) => {
+                                            self.handle_clipboard_message(content).await;
+                                        }
+                                        _ => {}
+                                    }
+                                    // self.handle_after_message(message).await;
                                     // self.handle_message(message).await;
                                 }
                             }
                         }
                         Err(e) => { //对面被强制关闭时会走这里start_work error:io::Error:`远程主机强迫关闭了一个现有的连接。 (os error 10054)`
                             println!("start_work error:{e}");
+                            self.disconnect();
                             return;
                         }
                     }
                 }
             }
-            // println!("开始监听通道消息");
-            // match new_receiver.recv().await{
-            //     Ok(msg) => {
-            //         println!("{:?}收到消息，准备发送",self.stream);
-            //         &self.stream.write_all(msg.as_slice());
-            //     }
-            //     Err(_) => {
-            //         println!("receiver.recv()出现错误")
-            //     }
-            // }
+        }
+        // let mut receiver = & mut (self.channel.as_mut().as_ref().unwrap().1);
+    }
+    async fn handle_pair_message(&mut self, id: String) {
+        self.set_id(id).await;
+    }
+    // async fn handle_clipboard_message(&mut self,content:Vec<u8>){
+    async fn handle_clipboard_message(&mut self, content: String) {
+        if let Some(sender) = self.sender.as_ref() {
+            sender
+                // .send(ClipboardMessage(content).encode_message())
+                .send((content,self.socket_addr))
+                .unwrap();
         }
     }
-    async fn handle_before_message(&mut self, message: Message) {
-        match message {
-            LoginRequestMessage(username) => {
-                //todo 验证账号密码是否正确，若正确，取回id
-                if self.sender.is_none() {
-                    self.set_channel("123456".into()).await;
-                }
-            }
-            _ => {}
-        }
-    }
-    async fn handle_after_message(&mut self, message: Message) {
-        match message {
-            ClipboardMessage(content) => {
-                // println!("收到了消息ClipboardMessage{:?}",content);
-                //todo 有点脱裤子放屁了,先从ClipboardMessage结构又构建回来了
-                if let Some(sender) = self.sender.as_ref() {
-                    sender
-                        .send(ClipboardMessage(content).encode_message())
-                        .unwrap();
-                }
-            }
-            _ => {}
-        }
-    }
-    async fn handle_message(&mut self, message: Message) {
-        match message {
-            LoginRequestMessage(username) => {
-                //todo 验证账号密码是否正确，若正确，取回id
-                if self.sender.is_none() {
-                    self.set_channel("123456".into()).await;
-                }
-            }
-            ClipboardMessage(content) => {
-                // println!("收到了消息ClipboardMessage{:?}",content);
-                //todo 有点脱裤子放屁了,先从ClipboardMessage结构又构建回来了
-                if let Some(sender) = self.sender.as_ref() {
-                    sender
-                        .send(ClipboardMessage(content).encode_message())
-                        .unwrap();
-                }
-                // if let Some(asr) = self.channel.as_ref(){
-                //     *asr.lock().unwrap().0.send(Serializer::encode_message(ClipboardMessage(content)))
-                // }
-            }
-            _ => {}
+    // async fn handle_before_message(&mut self, message: Message) {
+    //     match message {
+    //         PairRequestMessage(id) => {
+    //             if self.sender.is_none() {
+    //                 self.set_channel("123456".into()).await;
+    //             }
+    //         }
+    //         _ => {}
+    //     }
+    // }
+    // async fn handle_after_message(&mut self, message: Message) {
+    //     match message {
+    //         ClipboardMessage(content) => {
+    //             // println!("收到了消息ClipboardMessage{:?}",content);
+    //             //todo 有点脱裤子放屁了,先从ClipboardMessage结构又构建回来了
+    //             if let Some(sender) = self.sender.as_ref() {
+    //                 sender
+    //                     .send(ClipboardMessage(content).encode_message())
+    //                     .unwrap();
+    //             }
+    //         }
+    //         _ => {}
+    //     }
+    // }
+    // async fn handle_message(&mut self, message: Message) {
+    //     match message {
+    //         PairRequestMessage(username) => {
+    //             //todo 验证账号密码是否正确，若正确，取回id
+    //             if self.sender.is_none() {
+    //                 self.set_channel("123456".into()).await;
+    //             }
+    //         }
+    //         ClipboardMessage(content) => {
+    //             // println!("收到了消息ClipboardMessage{:?}",content);
+    //             //todo 有点脱裤子放屁了,先从ClipboardMessage结构又构建回来了
+    //             if let Some(sender) = self.sender.as_ref() {
+    //                 sender
+    //                     .send(ClipboardMessage(content).encode_message())
+    //                     .unwrap();
+    //             }
+    //             // if let Some(asr) = self.channel.as_ref(){
+    //             //     *asr.lock().unwrap().0.send(Serializer::encode_message(ClipboardMessage(content)))
+    //             // }
+    //         }
+    //         _ => {}
+    //     }
+    // }
+    fn disconnect(&mut self) {
+        println!("{}断开连接",self.socket_addr);
+        if let Some(id) = &self.id {
+            let mut g_channel_map = self.channel_map.lock().unwrap();
+            g_channel_map.remove(id);
         }
     }
 }

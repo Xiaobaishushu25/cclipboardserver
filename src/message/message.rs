@@ -2,19 +2,17 @@ use crate::app_errors::AppError::IncompleteError;
 use crate::app_errors::AppResult;
 use bytes::Buf;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::OnceLock;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
     //username、pwd、email、code
     //username、pwd
-    LoginRequestMessage(String),
+    PairRequestMessage(String),
     //content
     ClipboardMessage(String),
-    //服务端是否准备好了，其实感觉不要这个bool也行
-    ServerReadyMessage(bool),
+    //服务端是否准备好了
+    ServerReadyMessage(),
 }
 impl Message {
     pub fn check_entire_message(src: &mut Cursor<&[u8]>) -> AppResult<()> {
@@ -34,7 +32,7 @@ impl Message {
         }
     }
 
-    pub fn encode_message(self) -> Vec<u8> {
+    pub fn encode(self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(256);
         let content = serde_json::to_vec(&self).unwrap();
         // bytes.push(message.get_type_id());//第一部分放一个u8，代表类型
@@ -44,7 +42,7 @@ impl Message {
     }
 
     // pub fn decode_message(bytes:Vec<u8>) ->Message{
-    pub fn decode_message(bytes: Vec<u8>) -> AppResult<Message> {
+    pub fn decode(bytes: Vec<u8>) -> AppResult<Message> {
         // let type_id = bytes.get(0).unwrap();
         // let struct_name = TYPE_TO_STRUCT.get().unwrap().get(type_id).unwrap();
         let content = &bytes[1..];

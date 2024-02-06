@@ -34,9 +34,10 @@ async fn main() {
     loop {
         let (stream, addr) = listener.accept().await.unwrap();
         println!("与{:?}建立连接", stream);
-        let arc_channel = channel_map.clone();
+        let arc_channel_map = channel_map.clone();
         tokio::spawn(async move {
-            let mut context = Context::new(arc_channel, stream, addr);
+            // let mut context = Context::new(arc_channel, stream, addr);
+            let mut context = Context::new(arc_channel_map,stream,addr);
             context.start_work().await;
             // tokio::spawn(async move{ context.start_work().await; })
             // context
@@ -88,9 +89,4 @@ async fn main() {
     //     });
     // }
 }
-// pub fn handle_connect(stream:TcpStream, addr:SocketAddr){
-//     tokio::spawn(||{
-//
-//
-//     });
-// }
+
