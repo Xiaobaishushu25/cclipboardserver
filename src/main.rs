@@ -3,15 +3,20 @@ mod clipboard;
 mod handler;
 mod message;
 mod test;
+mod utils;
 
 use clipboard_master::ClipboardHandler;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpSocket;
+use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc::Sender;
+use crate::handler::channel_manage::ChannelManage;
 
-use crate::handler::handler::{ChannelMap, Context};
+use crate::handler::handler::{Context,};
+use crate::message::message::Message;
 
 // fn main() {
 //     let _ = Master::new(handler::new()).run();
@@ -30,14 +35,22 @@ async fn main() {
         let listener = socket.listen(backlog).unwrap();
         listener
     };
-    let channel_map = Arc::new(Mutex::new(ChannelMap::new()));
+    // let channel_map = Arc::new(Mutex::new(PairChannelMap::new()));
+    let channel_manage = Arc::new(RwLock::new(ChannelManage::new()));
     loop {
         let (stream, addr) = listener.accept().await.unwrap();
-        println!("与{:?}建立连接", stream);
-        let arc_channel_map = channel_map.clone();
+        { //不知道这个锁什么时候释放，我给他划个范围
+            let (tx,_) = broadcast::channel::<Message>(64);
+            let mut write_guard = channel_manage.write().unwrap();
+            write_guard.add_stream_channel(addr,tx.clone());
+        }
+        println!("与aadr {:?}建立连接", addr);
+        // let arc_channel_map = channel_map.clone();
+        let arc_channel_manage = channel_manage.clone();
         tokio::spawn(async move {
-            // let mut context = Context::new(arc_channel, stream, addr);
-            let mut context = Context::new(arc_channel_map,stream,addr);
+            // let mut context = Context::new(arc_channel_map,stream,addr);
+            let mut context = Context::new(arc_channel_manage,stream,addr);
+            context.send_ready().await;
             context.start_work().await;
             // tokio::spawn(async move{ context.start_work().await; })
             // context
