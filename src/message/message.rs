@@ -7,7 +7,9 @@ use std::net::SocketAddr;
 
 #[derive(Debug,Clone,PartialEq,Serialize,Deserialize)]
 pub struct DeviceInfo {
-    // socket_addr:SocketAddr,
+    //这个地址用于  判断断开请求的是否由自己stream发送（不过也可以根据设备信息判断）
+    //必要用途：某设备请求断开其他设备的配对，此时需要根据这个地址转发请求给对应的tcpStream
+    socket_addr:SocketAddr, //这个地址用于在判断是否断开请求的是不是自己stream请求断开的不是本机的是
     device_name:String,
     device_type:DeviceType,
     // pair_code:Option<String>
@@ -18,8 +20,9 @@ pub enum DeviceType{
     Phone
 }
 impl DeviceInfo {
-    fn new(device_name:String,) -> Self{
+    pub fn new(socket_addr: SocketAddr,device_name:String) -> Self{
         Self{
+            socket_addr,
             device_name,
             device_type:DeviceType::DeskTop
         }

@@ -374,8 +374,11 @@ impl Context {
                 println!("{}收到断开{}连接的请求",self.socket_addr,addr);
                 //这个断开连接的请求有可能是自己发来的,也有可能是通过管子发来的，有可能是要求断开自己的，也有可能是别人
                 if addr==self.socket_addr { //如果请求自己断开连接，那就别转发给别的管子了
-                    self.disconnect();
+                    self.clear_pair_state();
+                    // self.disconnect();
                     self.send_message(RemovePairResponseMessage()).await;
+                    //清除配对状态后不是断开连接了，要继续等待配对请求！！
+                    self.start_work().await;
                 }else {//请求断开别人
                     let read_guard = self.channel_manage.read().unwrap();
                     if let Some(tx) = read_guard.get_stream_channel(addr) {
@@ -388,14 +391,14 @@ impl Context {
         }
     }
     // async fn handle_clipboard_message(&mut self,content:Vec<u8>){
-    async fn handle_clipboard_message(&mut self, content: String) {
-        if let Some(sender) = self.sender.as_ref() {
-            sender
-                // .send(ClipboardMessage(content).encode_message())
-                .send((content,self.socket_addr))
-                .unwrap();
-        }
-    }
+    // async fn handle_clipboard_message(&mut self, content: String) {
+    //     if let Some(sender) = self.sender.as_ref() {
+    //         sender
+    //             // .send(ClipboardMessage(content).encode_message())
+    //             .send((content,self.socket_addr))
+    //             .unwrap();
+    //     }
+    // }
     // async fn handle_before_message(&mut self, message: Message) {
     //     match message {
     //         PairRequestMessage(id) => {
@@ -447,16 +450,27 @@ impl Context {
         self.stream.write_all(message.encode().as_slice()).await.unwrap();
         self.stream.flush().await.unwrap();
     }
-    ///断开连接要处理：①移除tcp_channel ②移除pair_channel
+    ///清除配对状态要处理：①移除tcp_channel ②移除pair_channel
     /// ③移除配对码 设备信息应该不用移除，不过移不移除都一样了，反正会重新设置
-    fn disconnect(&mut self) {
-        println!("{}断开连接",self.socket_addr);
+    fn clear_pair_state(&mut self){
+        println!("{}清除连接状态",self.socket_addr);
         let mut write_guard = self.channel_manage.write().unwrap();
         if let (Some(pair_code),Some(device_info)) =  (&self.pair_code,&self.device_info) {
             write_guard.remove_pair_device(pair_code,device_info.clone());
         }
-        write_guard.remove_stream_channel(self.socket_addr);
         self.pair_code = None;
+    }
+    fn disconnect(&mut self) {
+        // println!("{}清除连接状态",self.socket_addr);
+        // let mut write_guard = self.channel_manage.write().unwrap();
+        // if let (Some(pair_code),Some(device_info)) =  (&self.pair_code,&self.device_info) {
+        //     write_guard.remove_pair_device(pair_code,device_info.clone());
+        // }
+        println!("{}断开连接",self.socket_addr);
+        self.clear_pair_state();
+        let mut write_guard = self.channel_manage.write().unwrap();
+        write_guard.remove_stream_channel(self.socket_addr);
+        // self.pair_code = None;
         // write_guard.remove_pair_device()
         // if let Some(id) = &self.id {
         //     let mut g_channel_map = self.channel_map.lock().unwrap();

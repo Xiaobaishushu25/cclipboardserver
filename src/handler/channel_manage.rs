@@ -36,22 +36,18 @@ impl ChannelManage{
         self.stream_channel.remove(&addr);
     }
     ///根据发来的配对码检查是否有配对通道，若存在，返回该通道的发送句柄和设备群信息，不存在返回None
-    // pub fn get_pair_channel(&mut self,pair_code:&str,device_info: DeviceInfo)-> Option<Sender<(String, SocketAddr)>> {
     pub fn get_pair_channel(&mut self,pair_code:&str,device_info: &DeviceInfo)-> Option<(Sender<(String, SocketAddr)>,Vec<DeviceInfo>)> {
         match self.pair_channel.get_mut(pair_code) {
             None => {None}
             Some(tuple) => {
                 let mut x = &mut (tuple.1);
                 x.push(device_info.clone());
-                // Some(*(tuple.clone()))
-                // Some((&tuple.0).clone())
                 Some(((&tuple.0).clone(),x.clone()))
                 // Some((&tuple).clone())
             },
         }
     }
     ///根据配对码添加一个配对通道，并返回此通道发送句柄和配对码
-    // pub fn add_pair_channel(&mut self,pair_code:&str) ->(Sender<(String, SocketAddr)>,String) {
     pub fn add_pair_channel(&mut self,device_info: DeviceInfo) ->(Sender<(String, SocketAddr)>,String) {
         let (tx, _) = broadcast::channel(20);
         let r_tx = tx.clone(); //return的tx的意思
