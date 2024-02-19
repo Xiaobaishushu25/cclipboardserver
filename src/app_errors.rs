@@ -11,6 +11,8 @@ pub enum AppError {
     SerdeError(#[from] serde_json::Error),
     #[error("Not enough data is available to parse a message")]
     IncompleteError,
+    #[error("this is a error:`{0}`")]
+    ErrorDescribe(String),
     // #[error("http::ParseError:`{0}`")]
     // ParseError(#[from] ParseError),
     // #[error("sea_orm::DbErr:Error:`{0}`")]

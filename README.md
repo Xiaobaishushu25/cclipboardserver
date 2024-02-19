@@ -1,5 +1,6 @@
 cclipboard server 
-多端剪切板同步
+多端剪切板同步的服务端
 客户端打开，建立与服务器连接
 若有配对码，请求配对，发送ConnectInfoMessage
 没有配对码，还是发送ConnectInfoMessage，但是pairCode是None，请求服务端分配一个配对码
+连接存活检测，若一分钟内没有数据交互则断开连接
