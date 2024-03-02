@@ -400,7 +400,8 @@ impl Context {
             let new_tx = connect_tx.clone();
             async move {
                 error!("timer execute! send WorkErrorMessage!");
-                let _ = new_tx.send(WorkErrorMessage()).unwrap();
+                //不要unwrap，因为有可能已经清除掉连接了，在unwrap会panic
+                let _ = new_tx.send(WorkErrorMessage());
             }
         };
         builder
