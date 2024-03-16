@@ -2,12 +2,16 @@ use crate::message::message::Message;
 use crate::message::message::Message::{ClipboardMessage, DeviceChangeResponseMessage};
 use bytes::Buf;
 use log::info;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::io::SeekFrom::Start;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use tokio::time;
 use tokio::time::Instant;
 
@@ -55,6 +59,38 @@ async fn test_cancel() {
     let mut heartbeat_interval = time::interval_at(start, Duration::from_secs(15));
     heartbeat_interval.tick().await;
     println!("结束了");
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("无法读取输入");
+}
+#[test]
+fn test_change_map() {
+    let mut map = HashMap::new();
+    map.insert("test".to_string(),1);
+    if let Some(num) = map.get_mut("test"){
+        *num = *num +1;
+    }
+    println!("{:?}",map)
+}
+#[tokio::test]
+async fn test_tcp() {
+    let addr = "127.0.0.1:8888";
+    match TcpStream::connect(addr).await {
+        Ok(mut stream) => {
+            stream.write_all("wo cesini".as_bytes()).await.unwrap();
+            // 尝试从服务器读取数据
+            let mut buffer = [0; 1024];
+            match stream.read(&mut buffer).await {
+                Ok(0) => println!("连接已关闭"),
+                Ok(n) => println!("收到 {} 字节数据: {:?}", n, &buffer[..n]),
+                Err(e) => println!("读取错误: {}", e),
+            }
+        }
+        Err(e) => {
+            println!("{}", e)
+        }
+    };
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)

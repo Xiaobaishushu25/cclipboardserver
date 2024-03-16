@@ -1,7 +1,7 @@
-use crate::app_errors::AppError::IncompleteError;
+use crate::app_errors::AppError::{IncompleteError, MessageFormatError};
 use crate::app_errors::AppResult;
 use bytes::{Buf, BufMut, BytesMut};
-use log::{warn};
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Seek, SeekFrom};
 use std::net::{SocketAddr};
@@ -108,8 +108,16 @@ impl Message {
                 if len <= remain_size {
                     //等于的时候刚好是一个完整的消息，大于的时候说明有粘包
                     //把游标位置调到一个完整的消息处，用于后续清空该消息的缓冲
-                    src.seek(SeekFrom::Current(len as i64)).unwrap();
-                    Ok(())
+                    //如果 len 是负数或者 len 转换为 i64 后超出了 i32 的范围，那么 seek 操作会失败，因为 Cursor 无法移动到一个无效的位置。
+                    // 这可能是由于数据损坏、错误的数据格式或者网络问题导致的。
+                    // src.seek(SeekFrom::Current(len as i64)).unwrap();
+                    // Ok(())
+                    if let Ok(_) = src.seek(SeekFrom::Current(len as i64)){
+                        Ok(())
+                    }else {
+                        Err(MessageFormatError)
+                    }
+
                 } else {
                     Err(IncompleteError)
                 }

@@ -60,7 +60,7 @@ impl Context {
     pub async fn send_ready(&mut self) {
         //准备好接受消息了，给客户端发一个ready信号
         let response_message = ServerReadyResponseMessage(self.socket_addr);
-        info!("send message:{:?} to{}", response_message, self.socket_addr);
+        info!("send message:{:?} to {}", response_message, self.socket_addr);
         self.send_socket_message(response_message).await;
         // self.stream
         //     .write_all(response_message.encode().as_ref())
@@ -120,6 +120,7 @@ impl Context {
                     }
                 }
                 Err(e) => {
+                    //发送错误的数据包也会走到这里
                     //对面被强制关闭时会走这里start_work error:io::Error:`远程主机强迫关闭了一个现有的连接。 (os error 10054)`
                     error!("{e}");
                     // self.disconnect().await;
@@ -335,12 +336,11 @@ impl Context {
         } else {
             info!("send tcp：{:?} to {}", message, self.socket_addr);
         }
-        // self.stream.write_all(message.encode().as_slice()).await.unwrap();
-        self.stream
+        //called `Result::unwrap()` on an `Err` value: Os { code: 104, kind: ConnectionReset, message: "Connection reset by peer" }
+        let _ = self.stream
             .write_all(message.encode().as_ref())
-            .await
-            .unwrap();
-        self.stream.flush().await.unwrap();
+            .await;
+        let _ = self.stream.flush().await;
         let timer = &self.check_connect.0;
         timer.remove_task(1).unwrap();
         timer.add_task(self.build_clear_task()).unwrap()
@@ -395,11 +395,12 @@ impl Context {
     ///构建一个清除任务，id为1，60秒后发送WorkErrorMessage，使该socket断开连接。
     fn build_clear_task(&self) -> Task {
         let connect_tx = self.check_connect.1.clone();
+        let addr = self.socket_addr.clone();
         let mut builder = TaskBuilder::default();
         let task = move || {
             let new_tx = connect_tx.clone();
             async move {
-                error!("timer execute! send WorkErrorMessage!");
+                error!("{} timer execute! send WorkErrorMessage!",addr);
                 //不要unwrap，因为有可能已经清除掉连接了，在unwrap会panic
                 let _ = new_tx.send(WorkErrorMessage());
             }

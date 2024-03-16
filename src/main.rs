@@ -4,11 +4,11 @@ mod message;
 mod test;
 mod utils;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use crate::handler::channel_manage::ChannelManage;
-use log::info;
+use log::{error, info};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpSocket;
 use tokio::sync::broadcast;
@@ -35,16 +35,30 @@ async fn main() {
     let mut banned_ips = HashSet::new();
     banned_ips.insert("172.104.39.21");
     // let channel_map = Arc::new(Mutex::new(PairChannelMap::new()));
+    // 创建一个HashMap来存储一个IP的连接数量（偶尔会有未知ip疯狂用不同端口建立连接，我限定一个ip最多只能连十个端口，再多不处理）
+    let mut ip_port_num = HashMap::with_capacity(10);
     let channel_manage = Arc::new(RwLock::new(ChannelManage::new()));
     loop {
         let (mut stream, addr) = listener.accept().await.unwrap();
         let ip = addr.ip().to_string();
+        if let Some(num) = ip_port_num.get_mut(&ip){
+            if *num>10{
+                error!("this ip {} connect too many port {}",addr,*num);
+                let _ = stream.shutdown().await;
+                continue;
+            }else {
+                *num = *num+1;
+                info!("ip:{} port +1 {}",addr,*num+1);   
+            }
+        }else { 
+            ip_port_num.insert(ip.clone(),1);
+        }
         if banned_ips.contains(ip.as_str()) {
+            info!("this is banned ip:{}",addr);
             let _ = stream.shutdown().await;
             continue;
         }
         info!("connect with aadr:{}", addr);
-
         {
             //不知道这个锁什么时候释放，我给他划个范围
             let (tx, _) = broadcast::channel::<Message>(64);
