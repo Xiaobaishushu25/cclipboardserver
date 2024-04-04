@@ -58,6 +58,9 @@ impl Context {
         }
     }
     pub async fn send_ready(&mut self) {
+        //开启定时任务
+        let timer = &self.check_connect.0;
+        timer.add_task(self.build_clear_task()).unwrap();
         //准备好接受消息了，给客户端发一个ready信号
         let response_message = ServerReadyResponseMessage(self.socket_addr);
         info!("send message:{:?} to {}", response_message, self.socket_addr);
@@ -66,8 +69,6 @@ impl Context {
         //     .write_all(response_message.encode().as_ref())
         //     .await
         //     .unwrap();
-        let timer = &self.check_connect.0;
-        timer.add_task(self.build_clear_task()).unwrap();
     }
     ///开始监听该tcp的流消息（只关心配对相关请求），当收到消息后终止循环交由handle_before_pair_message函数处理
     /// 至于为什么不直接在循环中处理消息，考虑到如果配对成功，那么就直接进入新的loop，感觉这个函数没结束干净，总感觉不好，并且会使start_work臃肿
