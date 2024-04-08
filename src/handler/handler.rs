@@ -15,6 +15,7 @@ use log::{debug, error, info};
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
+use anyhow::anyhow;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
@@ -358,8 +359,9 @@ impl Context {
                 return if self.buffer.is_empty() {
                     Ok(None)
                 } else {
+                    anyhow!("connection reset by peer".into())
                     // Ok(None)
-                    Err(ErrorDescribe("connection reset by peer".into()))
+                    // Err(ErrorDescribe("connection reset by peer".into()))
                 };
             }
         }
