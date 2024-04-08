@@ -3,7 +3,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("error:`{0}`")]
+    #[error("anyhow::Error:`{0}`")]
     AnyHow(#[from] anyhow::Error),
     #[error("io::Error:`{0}`")]
     IoError(#[from] io::Error),
@@ -14,7 +14,7 @@ pub enum AppError {
     #[error("this is a error:`{0}`")]
     ErrorDescribe(String),
     //其实这个错误类型大概和SerdeError差不多，但是这个错误是协议错误，没有按照约定的格式发送消息，无法解析，应该直接断开连接。
-    #[error("cant parse message!")]
+    #[error("message format error:cant parse message!")]
     MessageFormatError,
     // #[error("http::ParseError:`{0}`")]
     // ParseError(#[from] ParseError),
