@@ -41,6 +41,11 @@ async fn main() {
     loop {
         let (mut stream, addr) = listener.accept().await.unwrap();
         let ip = addr.ip().to_string();
+        if banned_ips.contains(ip.as_str()) {
+            info!("this is banned ip:{}",addr);
+            let _ = stream.shutdown().await;
+            continue;
+        }
         if let Some(num) = ip_port_num.get_mut(&ip){
             if *num>10{
                 error!("this ip {} connect too many port {}",addr,*num);
@@ -52,11 +57,6 @@ async fn main() {
             }
         }else { 
             ip_port_num.insert(ip.clone(),1);
-        }
-        if banned_ips.contains(ip.as_str()) {
-            info!("this is banned ip:{}",addr);
-            let _ = stream.shutdown().await;
-            continue;
         }
         info!("connect with aadr:{}", addr);
         {
@@ -82,49 +82,4 @@ async fn main() {
             // context
         });
     }
-    // let mut user_channel:HashMap<String,(Sender<(String, SocketAddr)>, Receiver<(String, SocketAddr)>)> = HashMap::with_capacity(50);
-    // let mut user_channel:HashMap<String,Arc<(Sender<Vec<u8>>, Receiver<Vec<u8>>)>> = HashMap::with_capacity(50);
-    // let (tx, _rx) = broadcast::channel(50);
-    // loop {
-    //     let (mut stream, addr) = listener.accept().await.unwrap();
-    //     info!("new client: {}", addr);
-    //
-    //     stream.set_nodelay(true).unwrap();
-    //
-    //     let tx = tx.clone();
-    //     let mut rx = tx.subscribe();
-    //
-    //
-    //     tokio::spawn(async move {
-    //         let (reader, mut writer) = stream.split();
-    //
-    //         let mut reader = BufReader::new(reader);
-    //
-    //         let mut line = String::new();
-    //
-    //         loop {
-    //             tokio::select! {
-    //                 result = reader.read_line(&mut line) => {
-    //                     if result.unwrap() == 0 {
-    //                         break;
-    //                     }
-    //                     info!("msg received: {}", line);
-    //                     if line.trim() == "quit" { break; }
-    //                     tx.send((line.clone(), addr)).unwrap();
-    //                     line.clear();
-    //                 }
-    //                 result = rx.recv() => match result{
-    //                     Ok((line, addr_other)) => {
-    //                         if addr != addr_other {
-    //                             writer.write_all(line.as_bytes()).await.unwrap();
-    //                         }
-    //                     },
-    //                     Err(RecvError::Lagged(_num)) => continue,
-    //                     Err(_) => break,
-    //                 }
-    //             };
-    //         }
-    //         info!("client leave: {}", addr);
-    //     });
-    // }
 }
