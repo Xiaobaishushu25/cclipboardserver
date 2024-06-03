@@ -21,3 +21,8 @@ async-recursion = "1.0.5"
 log4rs = { version = "1.3.0",features = ["file_appender","pattern_encoder","threshold_filter"]}
 log = "0.4.20"
 delay_timer = "0.11.5"
+
+#sysinfo = "0.23"
+num_threads = "0.1.7"
+[profile.release]
+panic = 'abort'  # 设置为 abort 模式

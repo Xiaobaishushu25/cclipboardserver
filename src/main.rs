@@ -69,6 +69,11 @@ async fn main() {
         // let arc_channel_map = channel_map.clone();
         let arc_channel_manage = channel_manage.clone();
         tokio::spawn(async move {
+            if let Some(num) = num_threads::num_threads() {
+                info!("Current thread count: {}", num);
+            } else {
+                error!("Failed to get process info.");
+            }
             // let mut context = Context::new(arc_channel_map,stream,addr);
             let mut context = Context::new(arc_channel_manage, stream, addr);
             context.send_ready().await;
