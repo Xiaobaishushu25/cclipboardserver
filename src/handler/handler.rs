@@ -44,7 +44,7 @@ impl Context {
         tcp: TcpStream,
         addr: SocketAddr,
     ) -> Self {
-        let (read,write) = tcp.into_split();
+        // let (read,write) = tcp.into_split();
         let delay_timer = DelayTimerBuilder::default().build();
         let (tx, _) = broadcast::channel(16);
         Self {

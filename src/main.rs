@@ -14,6 +14,7 @@ use tokio::net::TcpSocket;
 use tokio::sync::broadcast;
 
 use crate::handler::handler::Context;
+use crate::handler::handler_test::ContextTest;
 use crate::message::message::Message;
 
 #[tokio::main]
@@ -70,14 +71,29 @@ async fn main() {
         let arc_channel_manage = channel_manage.clone();
         tokio::spawn(async move {
             if let Some(num) = num_threads::num_threads() {
-                info!("Current thread count: {}", num);
+                info!("before:Current thread count: {}", num);
             } else {
                 error!("Failed to get process info.");
             }
-            // let mut context = Context::new(arc_channel_map,stream,addr);
-            let mut context = Context::new(arc_channel_manage, stream, addr);
-            context.send_ready().await;
-            context.start_work().await;
+            // let mut context = Context::new(arc_channel_manage, stream, addr);
+            let mut context = ContextTest::new(arc_channel_manage, stream, addr);
+            if let Some(num) = num_threads::num_threads() {
+                info!("after context :Current thread count: {}", num);
+            } else {
+                error!("Failed to get process info.");
+            }
+            // context.send_ready().await;
+            // if let Some(num) = num_threads::num_threads() {
+            //     info!("after send_ready():Current thread count: {}", num);
+            // } else {
+            //     error!("Failed to get process info.");
+            // }
+            // context.start_work().await;
+            // if let Some(num) = num_threads::num_threads() {
+            //     info!("after start_work:Current thread count: {}", num);
+            // } else {
+            //     error!("Failed to get process info.");
+            // }
             // tokio::spawn(async move{ context.start_work().await; })
             // context
         });
