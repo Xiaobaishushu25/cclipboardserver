@@ -1,5 +1,5 @@
-use crate::app_errors::AppError::{ErrorDescribe, IncompleteError};
-use crate::app_errors::AppResult;
+use crate::app_errors::AppError::{AnyHow, ErrorDescribe, IncompleteError};
+use crate::app_errors::{AppError, AppResult};
 use crate::handler::channel_manage::ChannelManage;
 use crate::message::message::Message::{
     ClipboardMessage, CloseMessage, DeviceChangeResponseMessage, HeartPackageMessage,
@@ -360,7 +360,9 @@ impl Context {
                 return if self.buffer.is_empty() {
                     Ok(None)
                 } else {
-                    anyhow!("connection reset by peer".into())
+                    // Err(AppError::from(anyhow!("connection reset by peer")))
+                    Err(AnyHow(anyhow!("connection reset by peer")))
+                    // anyhow!("connection reset by peer".into())
                     // Ok(None)
                     // Err(ErrorDescribe("connection reset by peer".into()))
                 };
