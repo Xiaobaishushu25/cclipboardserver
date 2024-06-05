@@ -1,19 +1,23 @@
-use crate::message::message::Message;
+use crate::message::message::{DeviceInfo, Message};
 use crate::message::message::Message::{ClipboardMessage, DeviceChangeResponseMessage};
-use bytes::Buf;
+use bytes::{Buf, BytesMut};
 use log::info;
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::io::SeekFrom::Start;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::broadcast::Sender;
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tokio::time;
-use tokio::time::Instant;
+use tokio::time::{Instant, sleep};
+use crate::handler::channel_manage::ChannelManage;
 
 #[test]
 fn test_cursor() {
@@ -91,6 +95,46 @@ async fn test_tcp() {
             println!("{}", e)
         }
     };
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("无法读取输入");
+}
+#[tokio::test]
+async fn test_context() {
+    println!("开始");
+    let mut heartbeat_interval = time::interval(Duration::from_secs(25));
+    tokio::spawn(async move {
+        loop {
+            heartbeat_interval.tick().await;
+            println!("tick")
+        } 
+    });
+    println!("结束");
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("无法读取输入");
+}
+#[tokio::test]
+async fn test_context2() {
+    use std::io::{self, Write}; // 引入 `Write` trait
+
+    println!("开始");
+    io::stdout().flush().unwrap(); // 刷新标准输出缓冲区
+
+    let mut heartbeat_interval = tokio::time::interval(tokio::time::Duration::from_secs(25));
+    tokio::spawn(async move {
+        loop {
+            heartbeat_interval.tick().await;
+            println!("tick");
+            io::stdout().flush().unwrap(); // 刷新标准输出缓冲区
+        }
+    });
+
+    println!("结束");
+    io::stdout().flush().unwrap(); // 刷新标准输出缓冲区
+
     let mut input = String::new();
     std::io::stdin()
         .read_line(&mut input)

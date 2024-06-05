@@ -10,7 +10,7 @@ use crate::message::message::Message::{
 use crate::message::message::{DeviceInfo, Message};
 use async_recursion::async_recursion;
 use bytes::{Buf, BytesMut};
-use delay_timer::prelude::{DelayTimer, DelayTimerBuilder, Task, TaskBuilder};
+// use delay_timer::prelude::{DelayTimer, DelayTimerBuilder, Task, TaskBuilder};
 use log::{debug, error, info};
 use std::io::Cursor;
 use std::net::SocketAddr;
@@ -26,13 +26,11 @@ use tokio::time::sleep;
 
 pub struct Context {
     count: i32, //尝试次数，若重新进入start_work函数次数过多（200）强制断开连接，防止爆栈
-    // channel_map: Arc<RwLock<ChannelManage>>,
     channel_manage: Arc<RwLock<ChannelManage>>,
     stream: TcpStream,
     socket_addr: SocketAddr,
     // 分配一个缓冲区
     buffer: BytesMut,
-    // sender: Option<Sender<(String, SocketAddr)>>,
     //配对通道
     pair_tx: Option<Sender<(Message, SocketAddr)>>,
     pair_code: Option<String>,
@@ -68,15 +66,10 @@ impl Context {
     }
     pub async fn send_ready(&mut self) {
         //开启定时任务
-        // let timer = &self.check_connect;
-        // let l = timer.lock().unwrap();
-        // let x = &(l.0);
-        let option = self.check_connect.0;
-        let option = self.check_connect.0.take();
-        let o = self.build_new_clean_task();
+        self.build_heart_detect_task();
         // self.check_connect.lock().unwrap().0 = Some(o);
-        self.check_connect.0 = Some(o);
-        (*self.check_connect.lock().unwrap()).0 = Some(o);
+        // self.check_connect.0 = Some(o);
+        // (*self.check_connect.lock().unwrap()).0 = Some(o);
         // timer.add_task(self.build_clear_task()).unwrap();
         //准备好接受消息了，给客户端发一个ready信号
         let response_message = ServerReadyResponseMessage(self.socket_addr);
@@ -101,13 +94,12 @@ impl Context {
             self.disconnect().await;
         }
         info!("start to listen {} message", self.socket_addr);
-        // let connect_tx = self.check_connect.1.clone();
-        let connect_tx = self.check_connect.lock().unwrap().1.clone();
+        let connect_tx = self.check_connect.1.clone();
         let mut connect_rx = connect_tx.subscribe();
         let message: Message = loop {
             let message = tokio::select! {
                 msg = self.read_message() => msg,
-                msg = connect_rx.recv() => {
+                _msg = connect_rx.recv() => {
                     Ok(Some(WorkErrorMessage()))
                 }
             };
@@ -160,8 +152,7 @@ impl Context {
             let stream_tx = read_guard.get_stream_channel(self.socket_addr).unwrap();
             stream_tx.subscribe()
         };
-        // let connect_tx = self.check_connect.1.clone();
-        let connect_tx = self.check_connect.lock().unwrap().1.clone();
+        let connect_tx = self.check_connect.1.clone();
         let mut connect_rx = connect_tx.subscribe();
         loop {
             tokio::select! {
@@ -188,7 +179,6 @@ impl Context {
                     match message{
                         Ok(message) => {
                             debug!("{}的socket管道收到消息：{:?}",self.socket_addr,message);
-                            // self.handle_before_pair_message(message).await;
                             self.handle_paired_message(message).await;
                         }
                         Err(e) => {
@@ -204,19 +194,11 @@ impl Context {
                         Ok(om) => {
                             match om {
                                 None => { //说明对面Tcp关了,我发现对面Ctrl+C直接终止进程和对面调用self.stream.shutdown()都走这个
-                                    // info!("对面断开连接");
                                     error!("message is None");
                                     self.disconnect().await;
                                     break;
                                 }
                                 Some(message) => { //可能会收到：心跳包、剪切板消息、移除设备消息
-                                    // info!("msg {:?}",message);
-                                    // if let HeartPackageMessage() = message{
-                                    //     println!("收到一个心跳包");
-                                    //     self.send_message(HeartPackageMessage())
-                                    // }else {
-                                    //     self.handle_paired_message(message).await;
-                                    // }
                                     self.handle_paired_message(message).await;
                                 }
                             }
@@ -316,10 +298,7 @@ impl Context {
                 //这个断开连接的请求有可能是自己发来的,也有可能是通过管子发来的，有可能是要求断开自己的，也有可能是别人
                 if addr == self.socket_addr {
                     //如果请求自己断开连接，那就别转发给别的管子了
-                    // let device_info = self.device_info.as_ref().unwrap();
-                    // self.broadcast_message(DeviceChangeResponseMessage(false, device_info.clone()));
                     self.clear_pair_state();
-                    // self.disconnect().await;
                     self.send_socket_message(RemovePairResponseMessage()).await;
                     //清除配对状态后不是断开连接了，要继续等待配对请求！！
                     self.start_work().await;
@@ -353,6 +332,7 @@ impl Context {
     async fn send_socket_message(&mut self, message: Message) {
         if let HeartPackageMessage() = message {
             //心跳包就别打印了
+            info!("send tcp：{:?} to {}", message, self.socket_addr);
         } else {
             info!("send tcp：{:?} to {}", message, self.socket_addr);
         }
@@ -361,6 +341,7 @@ impl Context {
             .write_all(message.encode().as_ref())
             .await;
         let _ = self.stream.flush().await;
+        self.build_heart_detect_task();
         // let timer = &self.check_connect.0;
         // timer.remove_task(1).unwrap();
         // timer.add_task(self.build_clear_task()).unwrap()
@@ -379,9 +360,6 @@ impl Context {
                 } else {
                     // Err(AppError::from(anyhow!("connection reset by peer")))
                     Err(AnyHow(anyhow!("connection reset by peer")))
-                    // anyhow!("connection reset by peer".into())
-                    // Ok(None)
-                    // Err(ErrorDescribe("connection reset by peer".into()))
                 };
             }
         }
@@ -434,17 +412,21 @@ impl Context {
     //         .spawn_async_routine(task)
     //         .unwrap()
     // }
-    fn build_new_clean_task(&self)->JoinHandle<()>{
-        let connect_tx = self.check_connect.lock().unwrap().1.clone();
+    ///检查当前是否有心跳检测计时，如果有，丢弃。
+    /// 新建一个心跳检测计时，60秒后发送WorkErrorMessage，使该socket断开连接。
+    fn build_heart_detect_task(&mut self){
+        if let Some(join_handle) = &self.check_connect.0{
+            join_handle.abort();
+        }
+        let connect_tx = self.check_connect.1.clone();
         let new_tx = connect_tx.clone();
         let addr = self.socket_addr;
-        tokio::spawn(async move {
-            info!("开始准备睡觉");
+        self.check_connect.0 = Some(tokio::spawn(async move {
             sleep(Duration::from_secs(60)).await;
             error!("{} timer execute! send WorkErrorMessage!",addr);
             //不要unwrap，因为有可能已经清除掉连接了，在unwrap会panic
             let _ = new_tx.send(WorkErrorMessage());
-        })
+        }))
     }
     ///清除配对状态要处理 ①移除pair_channel
     /// ②移除配对信息并广播  设备信息应该不用移除，不过移不移除都一样了，反正会重新设置
