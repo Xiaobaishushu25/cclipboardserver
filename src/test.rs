@@ -3,12 +3,8 @@ use crate::message::message::Message::{ClipboardMessage, DeviceChangeResponseMes
 use bytes::{Buf, BytesMut};
 use log::info;
 use std::collections::{HashMap, HashSet};
-use std::io::Cursor;
-use std::io::SeekFrom::Start;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
+use std::sync::{ Mutex, RwLock};
+
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;

@@ -4,7 +4,7 @@ mod message;
 mod test;
 mod utils;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::sync::{Arc, RwLock};
 
 
