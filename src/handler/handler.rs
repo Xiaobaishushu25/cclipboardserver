@@ -14,12 +14,15 @@ use delay_timer::prelude::{DelayTimer, DelayTimerBuilder, Task, TaskBuilder};
 use log::{debug, error, info};
 use std::io::Cursor;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 use anyhow::anyhow;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
+use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 pub struct Context {
     count: i32, //尝试次数，若重新进入start_work函数次数过多（200）强制断开连接，防止爆栈
@@ -35,7 +38,9 @@ pub struct Context {
     pair_code: Option<String>,
     device_info: Option<DeviceInfo>,
     //存活检查，第一个是一个定时器，第二个用于发送断开的消息
-    check_connect: (DelayTimer, Sender<Message>), // check_connectOption<>
+    // check_connect: (DelayTimer, Sender<Message>), // check_connectOption<>
+    // check_connect: Mutex<(Option<JoinHandle<()>>, Sender<Message>)>, // check_connectOption<>
+    check_connect: (Option<JoinHandle<()>>, Sender<Message>), // check_connectOption<>
 }
 impl Context {
     // pub(crate) fn new(channel_map:Arc<ChannelMap>, tcp:TcpStream, socket:SocketAddr) ->Self{
@@ -45,7 +50,7 @@ impl Context {
         addr: SocketAddr,
     ) -> Self {
         // let (read,write) = tcp.into_split();
-        let delay_timer = DelayTimerBuilder::default().build();
+        // let delay_timer = DelayTimerBuilder::default().build();
         let (tx, _) = broadcast::channel(16);
         Self {
             count: 0,
@@ -56,13 +61,23 @@ impl Context {
             pair_tx: None,
             pair_code: None,
             device_info: None,
-            check_connect: (delay_timer, tx),
+            // check_connect: (delay_timer, tx),
+            // check_connect: Mutex::new((None, tx)),
+            check_connect: (None, tx),
         }
     }
     pub async fn send_ready(&mut self) {
         //开启定时任务
-        let timer = &self.check_connect.0;
-        timer.add_task(self.build_clear_task()).unwrap();
+        // let timer = &self.check_connect;
+        // let l = timer.lock().unwrap();
+        // let x = &(l.0);
+        let option = self.check_connect.0;
+        let option = self.check_connect.0.take();
+        let o = self.build_new_clean_task();
+        // self.check_connect.lock().unwrap().0 = Some(o);
+        self.check_connect.0 = Some(o);
+        (*self.check_connect.lock().unwrap()).0 = Some(o);
+        // timer.add_task(self.build_clear_task()).unwrap();
         //准备好接受消息了，给客户端发一个ready信号
         let response_message = ServerReadyResponseMessage(self.socket_addr);
         info!("send message:{:?} to {}", response_message, self.socket_addr);
@@ -86,7 +101,8 @@ impl Context {
             self.disconnect().await;
         }
         info!("start to listen {} message", self.socket_addr);
-        let connect_tx = self.check_connect.1.clone();
+        // let connect_tx = self.check_connect.1.clone();
+        let connect_tx = self.check_connect.lock().unwrap().1.clone();
         let mut connect_rx = connect_tx.subscribe();
         let message: Message = loop {
             let message = tokio::select! {
@@ -144,7 +160,8 @@ impl Context {
             let stream_tx = read_guard.get_stream_channel(self.socket_addr).unwrap();
             stream_tx.subscribe()
         };
-        let connect_tx = self.check_connect.1.clone();
+        // let connect_tx = self.check_connect.1.clone();
+        let connect_tx = self.check_connect.lock().unwrap().1.clone();
         let mut connect_rx = connect_tx.subscribe();
         loop {
             tokio::select! {
@@ -344,9 +361,9 @@ impl Context {
             .write_all(message.encode().as_ref())
             .await;
         let _ = self.stream.flush().await;
-        let timer = &self.check_connect.0;
-        timer.remove_task(1).unwrap();
-        timer.add_task(self.build_clear_task()).unwrap()
+        // let timer = &self.check_connect.0;
+        // timer.remove_task(1).unwrap();
+        // timer.add_task(self.build_clear_task()).unwrap()
     }
     async fn read_message(&mut self) -> AppResult<Option<Message>> {
         // info!("开始read_message");
@@ -399,23 +416,35 @@ impl Context {
         }
     }
     ///构建一个清除任务，id为1，60秒后发送WorkErrorMessage，使该socket断开连接。
-    fn build_clear_task(&self) -> Task {
-        let connect_tx = self.check_connect.1.clone();
-        let addr = self.socket_addr.clone();
-        let mut builder = TaskBuilder::default();
-        let task = move || {
-            let new_tx = connect_tx.clone();
-            async move {
-                error!("{} timer execute! send WorkErrorMessage!",addr);
-                //不要unwrap，因为有可能已经清除掉连接了，在unwrap会panic
-                let _ = new_tx.send(WorkErrorMessage());
-            }
-        };
-        builder
-            .set_task_id(1)
-            .set_frequency_once_by_seconds(60)
-            .spawn_async_routine(task)
-            .unwrap()
+    // fn build_clear_task(&self) -> Task {
+    //     let connect_tx = self.check_connect.1.clone();
+    //     let addr = self.socket_addr.clone();
+    //     let mut builder = TaskBuilder::default();
+    //     let task = move || {
+    //         let new_tx = connect_tx.clone();
+    //         async move {
+    //             error!("{} timer execute! send WorkErrorMessage!",addr);
+    //             //不要unwrap，因为有可能已经清除掉连接了，在unwrap会panic
+    //             let _ = new_tx.send(WorkErrorMessage());
+    //         }
+    //     };
+    //     builder
+    //         .set_task_id(1)
+    //         .set_frequency_once_by_seconds(60)
+    //         .spawn_async_routine(task)
+    //         .unwrap()
+    // }
+    fn build_new_clean_task(&self)->JoinHandle<()>{
+        let connect_tx = self.check_connect.lock().unwrap().1.clone();
+        let new_tx = connect_tx.clone();
+        let addr = self.socket_addr;
+        tokio::spawn(async move {
+            info!("开始准备睡觉");
+            sleep(Duration::from_secs(60)).await;
+            error!("{} timer execute! send WorkErrorMessage!",addr);
+            //不要unwrap，因为有可能已经清除掉连接了，在unwrap会panic
+            let _ = new_tx.send(WorkErrorMessage());
+        })
     }
     ///清除配对状态要处理 ①移除pair_channel
     /// ②移除配对信息并广播  设备信息应该不用移除，不过移不移除都一样了，反正会重新设置

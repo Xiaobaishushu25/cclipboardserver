@@ -75,25 +75,25 @@ async fn main() {
             } else {
                 error!("Failed to get process info.");
             }
-            // let mut context = Context::new(arc_channel_manage, stream, addr);
-            let mut context = ContextTest::new(arc_channel_manage, stream, addr);
+            let mut context = Context::new(arc_channel_manage, stream, addr);
+            // let mut context = ContextTest::new(arc_channel_manage, stream, addr);
             if let Some(num) = num_threads::num_threads() {
                 info!("after context :Current thread count: {}", num);
             } else {
                 error!("Failed to get process info.");
             }
-            // context.send_ready().await;
-            // if let Some(num) = num_threads::num_threads() {
-            //     info!("after send_ready():Current thread count: {}", num);
-            // } else {
-            //     error!("Failed to get process info.");
-            // }
-            // context.start_work().await;
-            // if let Some(num) = num_threads::num_threads() {
-            //     info!("after start_work:Current thread count: {}", num);
-            // } else {
-            //     error!("Failed to get process info.");
-            // }
+            context.send_ready().await;
+            if let Some(num) = num_threads::num_threads() {
+                info!("after send_ready():Current thread count: {}", num);
+            } else {
+                error!("Failed to get process info.");
+            }
+            context.start_work().await;
+            if let Some(num) = num_threads::num_threads() {
+                info!("after start_work:Current thread count: {}", num);
+            } else {
+                error!("Failed to get process info.");
+            }
             // tokio::spawn(async move{ context.start_work().await; })
             // context
         });

@@ -23,6 +23,8 @@ log = "0.4.20"
 delay_timer = "0.11.5"
 
 #sysinfo = "0.23"
-num_threads = "0.1.7"
+#num_threads = "0.1.7"
+num_threads = { git = "https://github.com/jhpratt/num_threads.git", branch = "impl-windows" }
+
 [profile.release]
 panic = 'abort'  # 设置为 abort 模式
