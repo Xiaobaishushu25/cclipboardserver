@@ -222,11 +222,11 @@ impl Context {
     ///处理配对成功前的消息，只关心两种消息：请求配对消息和请求创建配对消息,记得没配对成功要重新开始监听
     async fn handle_before_pair_message(&mut self, message: Message) {
         match message {
-            PairRequestMessage(pair_code, device) => {
+            PairRequestMessage(pair_code, device,can_create) => {
                 // info!("{}收到请求配对消息{:?}",self.socket_addr,pair_code);
                 let option = {
                     let mut channel_manage = self.channel_manage.write().unwrap();
-                    channel_manage.get_pair_channel(&pair_code, &device)
+                    channel_manage.get_pair_channel(&pair_code, &device,can_create)
                 };
                 match option {
                     None => {
@@ -242,13 +242,15 @@ impl Context {
                         info!("{} pair success by {:?}", self.socket_addr, pair_code);
                         self.send_socket_message(PairDeviceInfosResponseMessage(vec))
                             .await;
-                        self.pair_code = Some(pair_code.into());
+                        self.pair_code = Some(pair_code);
                         self.device_info = Some(device.clone());
-                        //配对成功,给这个通道的设备发一个deice change消息
+                        //配对成功,给这个通道的设备发一个deice change消息(有时是使用旧配对码创建，此时这个tx对应的rx还没初始化
+                        // 在这里self.set_pair_channel(tx).await;才会有rx，会SendError，所以不能unwrap)
                         let tmp_tx = tx.clone();
-                        tmp_tx
-                            .send((DeviceChangeResponseMessage(true, device), self.socket_addr))
-                            .unwrap();
+                        // tmp_tx
+                        //     .send((DeviceChangeResponseMessage(true, device), self.socket_addr))
+                        //     .unwrap();
+                        let _ = tmp_tx.send((DeviceChangeResponseMessage(true, device), self.socket_addr));
                         self.set_pair_channel(tx).await;
                     }
                 }
@@ -260,7 +262,7 @@ impl Context {
                         "now pair group num is {}",
                         channel_manage.get_pair_num() + 1
                     );
-                    channel_manage.add_pair_channel(device.clone())
+                    channel_manage.add_pair_channel(None,device.clone())
                 };
                 self.send_socket_message(PairCodeResponseMessage(pair_code.clone()))
                     .await;

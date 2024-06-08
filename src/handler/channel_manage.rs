@@ -43,14 +43,24 @@ impl ChannelManage {
         &mut self,
         pair_code: &str,
         device_info: &DeviceInfo,
+        can_create:bool
     ) -> Option<(Sender<(Message, SocketAddr)>, Vec<DeviceInfo>)> {
         match self.pair_channel.get_mut(pair_code) {
-            None => None,
+            // None => None,
+            None => {
+                if can_create {
+                    //没有配对的，创建一个，设备信息也只有自己
+                    let (rx,_) = self.add_pair_channel(Some(pair_code.to_string()), device_info.clone());
+                    Some((rx,vec![device_info.clone()]))
+                }else {
+                    None
+                }
+            },
             Some(tuple) => {
                 let x = &mut (tuple.1);
                 x.push(device_info.clone());
-                Some(((&tuple.0).clone(), x.clone()))
-                // Some((&tuple).clone())
+                // Some(((&tuple.0).clone(), x.clone()))
+                Some((tuple.0.clone(), x.clone()))
             }
         }
     }
@@ -58,22 +68,36 @@ impl ChannelManage {
     // pub fn add_pair_channel(&mut self,device_info: DeviceInfo) ->(Sender<(String, SocketAddr)>,String) {
     pub fn add_pair_channel(
         &mut self,
+        pair_code: Option<String>,
         device_info: DeviceInfo,
     ) -> (Sender<(Message, SocketAddr)>, String) {
         let (tx, _) = broadcast::channel(20);
         let r_tx = tx.clone(); //return的tx的意思
-        let code = loop {
-            let code = generate_pair_code();
-            if self.pair_channel.get(&code).is_none() {
+        let code = match pair_code {
+            None => {
+                loop {
+                    let code = generate_pair_code();
+                    if self.pair_channel.get(&code).is_none() {
+                        self.pair_channel
+                            .insert(code.clone(), (tx, vec![device_info]));
+                        break code;
+                    };
+                }
+            }
+            Some(code) => {
                 self.pair_channel
                     .insert(code.clone(), (tx, vec![device_info]));
-                break code;
-            };
-            // if self.pair_channel.get(&code) == None {
-            //     self.pair_channel.insert(code.clone(),(tx,vec![device_info]));
-            //     break code
-            // }
+                code
+            }
         };
+        // let code = loop {
+        //     // let code = generate_pair_code();
+        //     // if self.pair_channel.get(&code).is_none() {
+        //     //     self.pair_channel
+        //     //         .insert(code.clone(), (tx, vec![device_info]));
+        //     //     break code;
+        //     // };
+        // };
         (r_tx, code)
     }
     ///根据配对码，检查配对设备列表，如果存在给定的设备，将其移除。若设备表只有一个，直接删除键值对。
